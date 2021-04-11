@@ -15,14 +15,43 @@ how to use the page table and disk interfaces.
 #include <string.h>
 #include <errno.h>
 
+struct page_table
+{
+    int fd;
+    char *virtmem;
+    int npages;
+    char *physmem;
+    int nframes;
+    int *page_mapping;
+    int *page_bits;
+    page_fault_handler_t handler;
+};
+// Global algorithim variable to be called by p
+char *alg;
+int *frame_counter;
+int *fifo_history; // make way to find earliest frame used
+
 void page_fault_handler(struct page_table *pt, int page)
 {
-    printf("page fault on page #%d\n", page);
-    exit(1);
+    if (!strcmp(alg, "lfu"))
+    {
+        lfu(pt, page);
+        printf("DEBUG: %d", pt->nframes);
+        page_table_set_entry(pt, page, page, PROT_READ | PROT_WRITE);
+    }
+    else
 }
 
 int main(int argc, char *argv[])
 {
+
+    // 1. Allocate page table
+    // 2. Allocate frame table
+    // 3. Call respective progam (alpha, beta etc.)
+    // 4. Algorithm variable is globally called and handled as needed
+    // 4a. LFU: frequency counter array is initialized
+    // 4b. FIFO: history array is initialized
+    // 5. Program is finished
     if (argc != 5)
     {
         printf("use: virtmem <npages> <nframes> <rand|fifo|custom> <alpha|beta|gamma|delta>\n");
@@ -31,8 +60,20 @@ int main(int argc, char *argv[])
 
     int npages = atoi(argv[1]);
     int nframes = atoi(argv[2]);
+    alg = argv[3];
     const char *program = argv[4];
 
+    // Pre-allocations
+    if (!strcmp(alg, "lfu"))
+    {
+        // allocates frequency array
+        frame_counter = (int *)malloc(nframes * sizeof(int));
+    }
+    else if (!strcmp(alg, "fifo"))
+    {
+        // allocates history array
+        fifo_history = (int *)malloc(nframes * sizeof(int));
+    }
     struct disk *disk = disk_open("myvirtualdisk", npages);
     if (!disk)
     {
