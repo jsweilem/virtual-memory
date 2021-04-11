@@ -6,6 +6,11 @@ The header files page_table.h and disk.h explain
 how to use the page table and disk interfaces.
 */
 
+/*
+Operating Systems - Project 4
+Group Members - Tarik Brown, Joseph Sweilem, Daraius Balsara, Bradley Budden
+*/
+
 #include "page_table.h"
 #include "disk.h"
 #include "program.h"
@@ -26,20 +31,66 @@ struct page_table
     int *page_bits;
     page_fault_handler_t handler;
 };
-// Global algorithim variable to be called by p
+// Global algorithim variable to indicate which replacement
+// policy to be used in page_fault_handler
 char *alg;
-int *frame_counter;
-int *fifo_history; // make way to find earliest frame used
+int *lru_alg_array;
+int *fifo_alg_array; // make way to find earliest frame used
+int *frames;
+
+// return the first avaialble frame to insert data into PT
+int check_frame_availibity(struct page_table *pt)
+{
+    for (int i = 0; i < pt->nframes; i++)
+    {
+        if (frames[i] == 0)
+        {
+            // if available frame is found, set bit to used and return frame number
+            frames[i] = 1;
+            return i;
+        }
+    }
+    return -1;
+}
 
 void page_fault_handler(struct page_table *pt, int page)
 {
-    if (!strcmp(alg, "lfu"))
+    // iterate page fault
+
+    // initialize bits and frame
+
+    int bits, frame;
+
+    page_table_get_entry(pt, page, frame, bits);
+
+    if (bits == 0)
     {
-        lfu(pt, page);
-        printf("DEBUG: %d", pt->nframes);
-        page_table_set_entry(pt, page, page, PROT_READ | PROT_WRITE);
+        // Find available frame
+        if ((frame = check_frame_availibity(pt)) < 0)
+        {
+            if (strcmp(alg, "fifo"))
+            {
+                // fifo
+            }
+            else if (strcmp(alg, "random"))
+            {
+                // random
+            }
+            else
+            {
+                // custom
+            }
+        }
+        // If a free frame is found insert into PT
+        else
+        {
+            // write to disk
+        }
     }
     else
+    {
+        page_table_set_entry(pt, page, frame, (PROT_READ | PROT_WRITE));
+    }
 }
 
 int main(int argc, char *argv[])
@@ -63,18 +114,38 @@ int main(int argc, char *argv[])
     alg = argv[3];
     const char *program = argv[4];
 
-    // Pre-allocations
+    // Pre-allocations of data structures needed for page_fault_handler logic
+    frames = (int *)malloc(nframes * sizeof(int));
+    if (!frames)
+    {
+        fprint("couldn't create frame state list\n");
+    }
+    for (int i = 0; i < nframes; i++)
+    {
+        frames[i] = 0;
+    }
+
     if (!strcmp(alg, "lfu"))
     {
-        // allocates frequency array
-        frame_counter = (int *)malloc(nframes * sizeof(int));
+        // allocates array for use in LRU replacement policy
+        lru_alg_array = (int *)malloc(nframes * sizeof(int));
+        if (!lru_alg_array)
+        {
+            fprint("couldn't create lru array\n");
+        }
     }
     else if (!strcmp(alg, "fifo"))
     {
-        // allocates history array
-        fifo_history = (int *)malloc(nframes * sizeof(int));
+        // allocates array for use in FIFO replacement policy
+        fifo_alg_array = (int *)malloc(nframes * sizeof(int));
+        if (!fifo_alg_array)
+        {
+            fprint("couldn't create fifo array\n");
+        }
     }
+
     struct disk *disk = disk_open("myvirtualdisk", npages);
+
     if (!disk)
     {
         fprintf(stderr, "couldn't create virtual disk: %s\n", strerror(errno));
@@ -82,6 +153,7 @@ int main(int argc, char *argv[])
     }
 
     struct page_table *pt = page_table_create(npages, nframes, page_fault_handler);
+
     if (!pt)
     {
         fprintf(stderr, "couldn't create page table: %s\n", strerror(errno));
