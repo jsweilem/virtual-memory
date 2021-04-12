@@ -41,7 +41,6 @@ void alpha_program(char *data, int length)
 
     for (j = 0; j < 100; j++)
     {
-
         int start = lrand48() % length;
         int size = 25;
         for (i = 0; i < 100; i++)
