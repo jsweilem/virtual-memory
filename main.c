@@ -31,14 +31,17 @@ struct page_table
     int *page_bits;
     page_fault_handler_t handler;
 };
-// Global algorithim variable to indicate which replacement
-// policy to be used in page_fault_handler
-char *alg;
-int *frames;
-int frame_counter = 0;
+
+// globals
+char *alg;             // page replacement policy
+int *frames;           // frame table for use in replacement logic
+int frame_counter = 0; // holds an index into our frame table
+
+// summary variables
 int page_faults;
 int disk_reads;
 int disk_writes;
+
 struct disk *disk;
 
 // return the first avaialble frame to insert data into PT
@@ -53,6 +56,64 @@ int check_frame_availibity(struct page_table *pt)
         }
     }
     return -1;
+}
+
+// This policy brings in page p + 1 whenever we need to bring in page p. It is a basic implementation
+// of a prefetching algorithm.
+void custom_replacement_policy(struct page_table *pt, int page, int frame, int fetch_bits, int fetch_frame)
+{
+    // bring in next page, if there is only 1 frame, do not attempt to bring in surrounding pages
+    if (pt->nframes > 1)
+    {
+        // if there is a p + 1th page, bring in the next page
+        if (page + 1 < pt->npages)
+        {
+            int stop_custom = 0;
+            // check if page + 1 is in physical memory already; if so, don't bring it in
+            for (int i = 0; i < pt->nframes; i++)
+            {
+                if (frames[i] == page + 1)
+                {
+                    stop_custom = 1;
+                }
+            }
+            if (!stop_custom)
+            {
+                if (frame + 1 >= pt->nframes)
+                {
+                    // if we are at the last frame, point to first frame in frame table and get it bits
+                    fetch_frame = 0;
+                    page_table_get_entry(pt, frames[fetch_frame], &fetch_frame, &fetch_bits);
+                }
+                else
+                {
+                    // if we are not at the last frame, point to next frame in frame table and get it bits
+                    fetch_frame = frame + 1;
+                    page_table_get_entry(pt, frames[fetch_frame], &fetch_frame, &fetch_bits);
+                }
+
+                // if the extra page we are going to evict has its WRITE bit set, then write
+                // it back to disk before evicting it
+                if (fetch_bits == (PROT_READ | PROT_WRITE))
+                {
+                    disk_write(disk, frames[fetch_frame], &pt->physmem[(fetch_frame)*PAGE_SIZE]);
+                    page_table_set_entry(pt, frames[fetch_frame], 0, 0);
+                }
+                else
+                {
+                    page_table_set_entry(pt, frames[fetch_frame], 0, 0);
+                }
+                // bring the p+1 page in from memory and update the frame table
+                disk_read(disk, page + 1, &pt->physmem[fetch_frame * PAGE_SIZE]);
+                disk_reads++;
+
+                frames[fetch_frame] = page + 1;
+
+                // update the p+1 PT entry to map to the frame that we placed it in
+                page_table_set_entry(pt, page + 1, fetch_frame, PROT_READ);
+            }
+        }
+    }
 }
 
 void replace_page(struct page_table *pt, int page)
@@ -88,59 +149,8 @@ void replace_page(struct page_table *pt, int page)
 
         if (!strcmp(alg, "custom"))
         {
-            // bring in next page, if there is only 1 frame, do not attempt to bring in surrounding pages
-            if (pt->nframes > 1)
-            {
-                // if there is a p + 1th page, bring in the next page
-                if (page + 1 < pt->npages)
-                {
-                    int stop_custom = 0;
-                    // check if page + 1 is in physical memory already
-                    for (int i = 0; i < pt->nframes; i++)
-                    {
-                        if (frames[i] == page + 1)
-                        {
-                            stop_custom = 1;
-                        }
-                    }
-                    if (!stop_custom)
-                    {
-                        if (frame + 1 >= pt->nframes)
-                        {
-                            // if we are at the last frame, point to first frame in frame table and get it bits
-                            fetch_frame = 0;
-                            page_table_get_entry(pt, frames[fetch_frame], &fetch_frame, &fetch_bits);
-                        }
-                        else
-                        {
-                            // if we are at the last frame, point to first frame in frame table and get it bits
-                            fetch_frame = frame + 1;
-                            page_table_get_entry(pt, frames[fetch_frame], &fetch_frame, &fetch_bits);
-                        }
-
-                        if (fetch_bits == (PROT_READ | PROT_WRITE))
-                        {
-                            disk_write(disk, frames[fetch_frame], &pt->physmem[(fetch_frame)*PAGE_SIZE]);
-                            page_table_set_entry(pt, frames[fetch_frame], 0, 0);
-                        }
-                        else
-                        {
-                            page_table_set_entry(pt, frames[fetch_frame], 0, 0);
-                        }
-                        disk_read(disk, page + 1, &pt->physmem[fetch_frame * PAGE_SIZE]);
-                        disk_reads++;
-
-                        frames[fetch_frame] = page + 1;
-
-                        page_table_set_entry(pt, page + 1, fetch_frame, PROT_READ);
-                    }
-                }
-            }
+            custom_replacement_policy(pt, page, frame, fetch_bits, fetch_frame);
         }
-        // page_table_set_entry(pt, page, frame, PROT_READ);
-
-        // // update frame table with replaced page
-        // frames[frame_counter] = page;
     }
 }
 
@@ -194,14 +204,6 @@ void page_fault_handler(struct page_table *pt, int page)
 
 int main(int argc, char *argv[])
 {
-
-    // 1. Allocate page table
-    // 2. Allocate frame table
-    // 3. Call respective progam (alpha, beta etc.)
-    // 4. Algorithm variable is globally called and handled as needed
-    // 4a. LFU: frequency counter array is initialized
-    // 4b. FIFO: history array is initialized
-    // 5. Program is finished
     if (argc != 5)
     {
         printf("use: virtmem <npages> <nframes> <rand|fifo|custom> <alpha|beta|gamma|delta>\n");
@@ -213,12 +215,32 @@ int main(int argc, char *argv[])
     alg = argv[3];
     const char *program = argv[4];
 
-    // Pre-allocations of data structures needed for page_fault_handler logic
+    // check that npages and nframes are positive
+    if (npages < 1)
+    {
+        printf("npages must be >= 1\n");
+        exit(1);
+    }
+    if (nframes < 1)
+    {
+        printf("npages must be >= 1\n");
+        exit(1);
+    }
+
+    // check that alg is a valid replacement policy
+    if (strcmp(alg, "fifo") && strcmp(alg, "rand") && strcmp(alg, "custom"))
+    {
+        printf("unknown replacement policy \n");
+        exit(1);
+    }
+
+    // Pre-allocation of frame table needed for page_fault_handler logic
     frames = (int *)malloc(nframes * sizeof(int));
     if (!frames)
     {
-        printf("couldn't create frame state list\n");
+        printf("couldn't create frame table\n");
     }
+    // initialize frame table values
     for (int i = 0; i < nframes; i++)
     {
         frames[i] = -1;
@@ -242,8 +264,7 @@ int main(int argc, char *argv[])
 
     char *virtmem = page_table_get_virtmem(pt);
 
-    // char *physmem = page_table_get_physmem(pt);
-
+    // run the chosen program
     if (!strcmp(program, "alpha"))
     {
         alpha_program(virtmem, npages * PAGE_SIZE);
@@ -266,7 +287,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    printf("Summary: Page Faults %d, Disk Reads %d, Disk Writes %d \n", page_faults, disk_reads, disk_writes);
+    printf("Summary: Page Faults - %d | Disk Reads - %d | Disk Writes - %d \n", page_faults, disk_reads, disk_writes);
+    free(frames);
     page_table_delete(pt);
     disk_close(disk);
 
