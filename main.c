@@ -59,8 +59,8 @@ void replace_page(struct page_table *pt, int page)
 {
     // initialize bits and frame
     int bits, frame;
-    int fetch_bits;
-    int fetch_frame;
+    int fetch_bits = 0;
+    int fetch_frame = 0;
     // get page table entry that currently exists in our frame array
     page_table_get_entry(pt, frames[frame_counter], &frame, &bits);
 
@@ -68,25 +68,30 @@ void replace_page(struct page_table *pt, int page)
     { // check if frame counter matches frame to be replaced, otherwise no replace is needed
         if (bits == (PROT_READ | PROT_WRITE))
         { // if write permissions exist, write back to disk before resetting
-            disk_write(disk, frames[frame_counter], &pt->physmem[frame * BLOCK_SIZE]);
+            disk_write(disk, frames[frame_counter], &pt->physmem[frame_counter * BLOCK_SIZE]);
             disk_writes++;
-            page_table_set_entry(pt, frames[frame_counter], frame, 0);
+            page_table_set_entry(pt, frames[frame_counter], 0, 0);
         }
         else
         { // if no write permissions exist, just reset the page
-            page_table_set_entry(pt, frames[frame_counter], frame, 0);
+            page_table_set_entry(pt, frames[frame_counter], 0, 0);
         }
 
         // read the new page from the disk and set it in the page table
-        disk_read(disk, page, &pt->physmem[frame * BLOCK_SIZE]);
+        disk_read(disk, page, &pt->physmem[frame_counter * BLOCK_SIZE]);
         disk_reads++;
 
-        if (pt->nframes > 1)
-        {
-            if (!strcmp(alg, "custom"))
-            {
+        page_table_set_entry(pt, page, frame, PROT_READ);
 
-                // bring in next page, if there is only 1 frame, do not attempt to bring in surrounding pages
+        // update frame table with replaced page
+        frames[frame_counter] = page;
+
+        if (!strcmp(alg, "custom"))
+        {
+            // bring in next page, if there is only 1 frame, do not attempt to bring in surrounding pages
+            if (pt->nframes > 1)
+            {
+                // if there is a p + 1th page, bring in the next page
                 if (page + 1 < pt->npages)
                 {
                     int stop_custom = 0;
@@ -100,30 +105,42 @@ void replace_page(struct page_table *pt, int page)
                     }
                     if (!stop_custom)
                     {
-                        fetch_frame = frame;
-                        fetch_bits = bits;
-                        fetch_frame++;
-                        page_table_get_entry(pt, frames[frame_counter + 1], &fetch_frame, &fetch_bits);
-                        if (fetch_bits & PROT_WRITE)
+                        if (frame + 1 >= pt->nframes)
                         {
-                            //disk_write(disk, page + 1, &pt->physmem[(frame)*BLOCK_SIZE]);
-                            disk_write(disk, frames[frame_counter + 1], &pt->physmem[(frame_counter + 1) * BLOCK_SIZE]);
-                            page_table_set_entry(pt, frames[frame_counter + 1], 0, 0);
+                            // if we are at the last frame, point to first frame in frame table and get it bits
+                            fetch_frame = 0;
+                            page_table_get_entry(pt, frames[fetch_frame], &fetch_frame, &fetch_bits);
                         }
-                        disk_read(disk, page + 1, &pt->physmem[(frame)*BLOCK_SIZE]);
+                        else
+                        {
+                            // if we are at the last frame, point to first frame in frame table and get it bits
+                            fetch_frame = frame + 1;
+                            page_table_get_entry(pt, frames[fetch_frame], &fetch_frame, &fetch_bits);
+                        }
+
+                        if (fetch_bits == (PROT_READ | PROT_WRITE))
+                        {
+                            disk_write(disk, frames[fetch_frame], &pt->physmem[(fetch_frame)*PAGE_SIZE]);
+                            page_table_set_entry(pt, frames[fetch_frame], 0, 0);
+                        }
+                        else
+                        {
+                            page_table_set_entry(pt, frames[fetch_frame], 0, 0);
+                        }
+                        disk_read(disk, page + 1, &pt->physmem[fetch_frame * PAGE_SIZE]);
                         disk_reads++;
 
-                        frames[frame_counter + 1] = page + 1;
+                        frames[fetch_frame] = page + 1;
 
-                        page_table_set_entry(pt, page + 1, (frame_counter + 1) % pt->nframes, PROT_READ);
+                        page_table_set_entry(pt, page + 1, fetch_frame, PROT_READ);
                     }
                 }
             }
         }
-        page_table_set_entry(pt, page, frame, PROT_READ);
+        // page_table_set_entry(pt, page, frame, PROT_READ);
 
-        // update frame table with replaced page
-        frames[frame_counter] = page;
+        // // update frame table with replaced page
+        // frames[frame_counter] = page;
     }
 }
 
