@@ -169,8 +169,6 @@ void page_fault_handler(struct page_table *pt, int page)
         // Find available frame
         if ((frame = check_frame_availibity(pt)) < 0)
         {
-            //printf("DEBUG:alg is %s \n ", alg);
-
             // int frame_to_replace
             if (!strcmp(alg, "fifo") || !strcmp(alg, "custom"))
             {
