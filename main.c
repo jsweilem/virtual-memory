@@ -97,6 +97,7 @@ void custom_replacement_policy(struct page_table *pt, int page, int frame, int f
                 if (fetch_bits == (PROT_READ | PROT_WRITE))
                 {
                     disk_write(disk, frames[fetch_frame], &pt->physmem[(fetch_frame)*PAGE_SIZE]);
+                    disk_writes++;
                     page_table_set_entry(pt, frames[fetch_frame], 0, 0);
                 }
                 else
