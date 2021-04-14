@@ -219,19 +219,19 @@ int main(int argc, char *argv[])
     // check that npages and nframes are positive
     if (npages < 1)
     {
-        printf("npages must be >= 1\n");
+        printf("npages must be an integer and >= 1\n");
         exit(1);
     }
     if (nframes < 1)
     {
-        printf("npages must be >= 1\n");
+        printf("nframes must be an integer and >= 1\n");
         exit(1);
     }
 
     // check that alg is a valid replacement policy
     if (strcmp(alg, "fifo") && strcmp(alg, "rand") && strcmp(alg, "custom"))
     {
-        printf("unknown replacement policy \n");
+        printf("unknown replacement policy: %s\n", argv[3]);
         exit(1);
     }
 
@@ -284,7 +284,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        fprintf(stderr, "unknown program: %s\n", argv[3]);
+        fprintf(stderr, "unknown program: %s\n", argv[4]);
         return 1;
     }
 
